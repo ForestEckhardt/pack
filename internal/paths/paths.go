@@ -74,3 +74,19 @@ func UriToFilePath(uri string) (string, error) {
 		return osPath, nil
 	}
 }
+
+func ToAbsolute(uri, relativeTo string) (string, error) {
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		return "", err
+	}
+
+	if parsed.Scheme == "" {
+		if !filepath.IsAbs(parsed.Path) {
+			absPath := filepath.Join(relativeTo, parsed.Path)
+			return FilePathToUri(absPath)
+		}
+	}
+
+	return uri, nil
+}

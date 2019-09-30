@@ -3,45 +3,49 @@ package fakes
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
-	"os"
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/buildpack/pack/builder"
+	"github.com/buildpack/pack/dist"
 	"github.com/buildpack/pack/internal/archive"
 )
 
 type fakeBuildpackBlob struct {
-	tmpDir     string
-	descriptor builder.BuildpackDescriptor
+	descriptor dist.BuildpackDescriptor
+	chmod      int64
 }
 
-func NewFakeBuildpackBlob(tmpDir string, descriptor builder.BuildpackDescriptor) *fakeBuildpackBlob {
+// NewBuildpackFromDescriptor creates a fake buildpacks for testing purposes where tar contents are such:
+//
+// 	\_ buildpack.toml
+// 	\_ bin
+// 	\_ bin/build
+//  	build-contents
+// 	\_ bin/detect
+//  	detect-contents
+//
+func NewBuildpackFromDescriptor(descriptor dist.BuildpackDescriptor, chmod int64) (dist.Buildpack, error) {
 	return &fakeBuildpackBlob{
-		tmpDir:     tmpDir,
 		descriptor: descriptor,
-	}
+		chmod:      chmod,
+	}, nil
 }
 
-func (b fakeBuildpackBlob) Open() (io.ReadCloser, error) {
-	return CreateBuildpackTGZ(b.tmpDir, b.descriptor)
+func (b *fakeBuildpackBlob) Descriptor() dist.BuildpackDescriptor {
+	return b.descriptor
 }
 
-func CreateBuildpackTGZ(tmpDir string, descriptor builder.BuildpackDescriptor) (*os.File, error) {
-	bpTmpFile, err := ioutil.TempFile(tmpDir, "bp-*.tgz")
-	if err != nil {
-		return nil, err
-	}
-
+func (b *fakeBuildpackBlob) Open() (reader io.ReadCloser, err error) {
 	buf := &bytes.Buffer{}
-	if err = toml.NewEncoder(buf).Encode(descriptor); err != nil {
+	if err = toml.NewEncoder(buf).Encode(b.descriptor); err != nil {
 		return nil, err
 	}
 
-	if err = archive.CreateSingleFileTar(bpTmpFile.Name(), "buildpack.toml", buf.String()); err != nil {
-		return nil, err
-	}
+	tarBuilder := archive.TarBuilder{}
+	tarBuilder.AddFile("buildpack.toml", b.chmod, buf.Bytes())
+	tarBuilder.AddDir("bin", b.chmod)
+	tarBuilder.AddFile("bin/build", b.chmod, []byte("build-contents"))
+	tarBuilder.AddFile("bin/detect", b.chmod, []byte("detect-contents"))
 
-	return bpTmpFile, nil
+	return tarBuilder.Reader(), err
 }
